@@ -1,46 +1,126 @@
-# ServiceNow Trading Agent — Capstone
+# TradeDesk
 
-> **Scaffold status:** structure only. The sections marked **`TODO`** need facts that only you
-> have — they are left blank deliberately rather than filled with plausible-sounding invention.
+A conversational paper-trading assistant. Users chat with it to learn trading concepts, check
+quotes and their portfolio, and place **simulated** trades against Alpaca's paper-trading API.
 
-## What this is
+**AI.Accelerate FY26 capstone — Path B (open).** Chidera Onyebu. Demo target: Discover ServiceNow.
 
-`TODO` — one paragraph: what the agent does and what problem it solves for the ServiceNow
-program.
+> ### No real money. No financial advice.
+>
+> Every order routes to Alpaca **paper trading**. The agent handles no real funds and holds no
+> real positions. It will not answer "should I buy NVDA?" — that intent (`out_of_scope`) redirects
+> to education. Answering it would be unlicensed financial advice, and the redirect is the product
+> working as designed, not a gap in it.
 
-## Architecture decision: on-platform vs. integrated
+## Why this domain
 
-This is the fork that determines the entire repo layout, so it should be settled first.
+Trading has naturally high-stakes actions, which makes the brief's agent-safety concepts
+load-bearing rather than decorative. An agent that can move simulated money forces real design
+decisions — intent gating, human confirmation, authorization enforced in code — and those
+decisions are the story worth telling at DSN.
 
-- **On-platform** — a scoped application built in ServiceNow (App Engine, Flow Designer, Business
-  Rules, Script Includes). Source lives as XML update sets / a linked repo via Studio. The
-  `src/scoped_app/` and `src/flows/` directories assume this path.
-- **Integrated** — an external service (Python/Node) that talks to ServiceNow over the Table API,
-  MID Server, or IntegrationHub. `src/integration/` assumes this path.
-
-`TODO` — pick one and delete the directories for the other.
-
-## Deliverables and timeline
-
-`TODO` — what the program is actually grading (demo? written report? working app? presentation?),
-and the due date.
-
-## Layout
+## Architecture
 
 ```
-docs/                # Design docs, capstone writeup
-src/scoped_app/      # ServiceNow scoped application source (if on-platform)
-src/flows/           # Flow Designer / IntegrationHub definitions (if on-platform)
-src/integration/     # External service + ServiceNow API client (if integrated)
-tests/
-scripts/             # Update-set import/export, local tooling
+Chat UI → FastAPI → LangGraph StateGraph → handler node → reply
+                         │
+                    classify_intent (structured JSON, Pydantic-validated)
+                         │
+                    ┌────┴─────┬──────────┬───────────┬──────────────┐
+                 educate    research   portfolio    trade      out_of_scope
+                  (RAG)     (quotes)   (positions)  (GATED)     (redirect)
 ```
 
-## Notes
+```
+app/
+├── graph/nodes/     # classify, router, handlers
+├── schemas/         # Pydantic intent taxonomy + order models
+├── rag/             # ingest (heading-based chunking), store, retrieve
+├── brokerage/       # BrokerageClient interface → mock | alpaca
+├── auth/            # role decorators
+└── mcp/             # read-only tool surface (stretch)
+corpus/              # ~20 self-authored brokerage policy + education docs
+```
 
-Whatever this agent trades, keep it paper/simulated for a capstone. A graded academic project is
-not a reason to connect real capital, and reviewers do not need it to be live to see that it
-works.
+## The safety design
+
+Six mechanisms, designed in from day one rather than bolted on:
+
+**1. The confirmation gate.** The agent never executes a trade in the turn it parses one. It
+echoes a structured order back and executes only after an explicit yes. One turn of separation
+between "the model thinks you want this" and "money moves."
+
+**2. The LLM never builds API calls.** It fills a Pydantic `OrderRequest`; Python builds the
+request. Model output is data to be validated, never a command to be run.
+
+**3. Server-side validation.** Symbol allowlist, quantity and buying-power checks, market-hours
+check — re-checked at the broker boundary even though the schema already validated. Upstream
+validation is a convenience; the boundary check is the guarantee.
+
+**4. Authorization in code, not prompts.** Role checks are decorators in the tool layer that raise
+403. A system prompt saying "you may not trade" is a request the model usually honors — and
+"usually" is not a security property. See [`app/auth/roles.py`](app/auth/roles.py).
+
+**5. Idempotent submission.** A `client_order_id` is generated when the order is *proposed* and
+reused on every retry, so a timeout that hides a successful fill cannot double-buy.
+
+**6. Structured refusal.** `out_of_scope` is a real intent, not a parse-failure bucket.
+
+## Lab mapping
+
+| Part | Implementation |
+|---|---|
+| 0 — core | Trace a message end-to-end; identify router splice points |
+| 1 — core | RAG over ~20 self-authored docs; heading-based chunking with title prefixing; low-confidence retrieval returns an honest "not in my docs" |
+| 2 — core | LangGraph: `classify_intent` → router → handlers; trades pass the confirmation gate against a mock broker |
+| 3 — ext | Swap mock → Alpaca behind `BrokerageClient`; env-var auth, error mapping, retries |
+| 4 — ext | Compliance persona: read-only, cross-account, cannot trade |
+| 5 — ext | MCP server exposing read-only tools; `place_order` deliberately excluded |
+
+## Demo plan
+
+**End-to-end:** definition question (cited RAG answer) → live quote → trade request →
+confirmation → fill → updated positions.
+
+**A failure I fixed:** naive fixed-size chunking split the pattern-day-trader rule across chunk
+boundaries, so retrieval returned half a rule and the model confidently completed the other half
+wrong. Heading-based chunking with title prefixing fixed it. Before/after shown live — this is
+the most valuable 60 seconds of the demo, because the brief explicitly says judges want the
+reasoning more than a clean happy path.
+
+**One design decision:** confirmation gate + code-level authorization, demonstrated by a jailbreak
+prompt failing at the Python role check.
+
+## Timeline
+
+| Days | Work |
+|---|---|
+| 1–2 | Skeleton walkthrough, intent router |
+| 3–4 | RAG pipeline |
+| 5–7 | **Full acting agent on mock broker — minimum demoable product** |
+| 8–9 | Alpaca integration |
+| 10 | Compliance persona |
+| — | MCP (stretch) |
+
+Polish stops at day 7 if time runs short. Because mock and Alpaca share one interface, the demo
+runs fully offline — worth rehearsing that path at least once, since venue wifi is a real risk.
+
+## Setup
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env    # add your Alpaca PAPER keys
+uvicorn app.main:app --reload
+```
+
+**Never commit `.env`.** It is gitignored. Use only paper-trading keys from
+`https://paper-api.alpaca.markets` — live keys have no business in this project.
+
+## Status
+
+Scaffold. Interfaces and safety-critical schemas are written; handler implementations are not.
+Start at Part 0 per the brief: read every file and trace a message end-to-end.
 
 ## License
 

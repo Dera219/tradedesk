@@ -9,10 +9,11 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+.venv-check/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
 dist/
 build/
-.ipynb_checkpoints/
+.chroma/
