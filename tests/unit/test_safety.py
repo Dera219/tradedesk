@@ -64,7 +64,10 @@ class TestOrderValidation:
 class TestIdempotency:
     def test_separate_proposals_get_separate_ids(self) -> None:
         order = _market_order()
-        assert PendingOrder(request=order).client_order_id != PendingOrder(request=order).client_order_id
+        assert (
+            PendingOrder(request=order).client_order_id
+            != PendingOrder(request=order).client_order_id
+        )
 
     def test_id_is_stable_when_reused_across_a_retry(self) -> None:
         original = PendingOrder(request=_market_order())

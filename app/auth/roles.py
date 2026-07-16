@@ -17,8 +17,6 @@ import functools
 from collections.abc import Awaitable, Callable
 from typing import ParamSpec, TypeVar
 
-from app.schemas.intents import Role
-
 P = ParamSpec("P")
 T = TypeVar("T")
 
@@ -29,7 +27,7 @@ class AuthorizationError(Exception):
     Carries no sensitive detail — the message reaches the user.
     """
 
-    def __init__(self, role: Role, capability: str) -> None:
+    def __init__(self, role: str, capability: str) -> None:
         self.role = role
         self.capability = capability
         super().__init__(f"Role '{role}' is not permitted to {capability}.")
@@ -37,7 +35,12 @@ class AuthorizationError(Exception):
 
 #: Capability grants per role. Compliance is deliberately read-only and cross-account: it can see
 #: everything and change nothing. Trader is the inverse — full control, own account only.
-CAPABILITIES: dict[Role, frozenset[str]] = {
+#:
+#: Keyed by `str`, not by the `Role` literal, on purpose: the decorator looks this up with a
+#: value that has NOT been validated yet — that lookup IS the validation. Typing the keys as
+#: `Role` would force a cast at the call site, which would assert the very fact we're checking.
+#: `Role` still documents intent everywhere a role is passed deliberately.
+CAPABILITIES: dict[str, frozenset[str]] = {
     "trader": frozenset({"read_own", "trade", "cancel_modify"}),
     "compliance": frozenset({"read_own", "read_all"}),
 }
@@ -55,15 +58,35 @@ def requires(capability: str) -> Callable[[Callable[P, Awaitable[T]]], Callable[
     def decorator(fn: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
         @functools.wraps(fn)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            role = kwargs.get("role")
-            if role is None:
-                # Fail closed. A missing role is a bug, and the safe response to a bug in an
-                # authorization path is to deny, never to assume the permissive default.
-                raise AuthorizationError("unknown", capability)  # type: ignore[arg-type]
-            if capability not in CAPABILITIES.get(role, frozenset()):
-                raise AuthorizationError(role, capability)
+            # ParamSpec erases kwarg types, so `role` arrives as `object`. Validate it against
+            # the known roles rather than casting: a cast would assert a fact we haven't
+            # checked, and an unrecognized role reaching the capability lookup would then just
+            # miss and deny — correct, but for the wrong reason and impossible to debug.
+            raw_role = kwargs.get("role")
+            grants = CAPABILITIES.get(raw_role) if isinstance(raw_role, str) else None
+
+            if grants is None:
+                # Fail closed. A missing or unrecognized role is a bug, and the safe response to
+                # a bug in an authorization path is to deny — never to assume the permissive
+                # default.
+                raise AuthorizationError(_describe(raw_role), capability)
+
+            if capability not in grants:
+                raise AuthorizationError(_describe(raw_role), capability)
+
             return await fn(*args, **kwargs)
 
         return wrapper
 
     return decorator
+
+
+def _describe(role: object) -> str:
+    """Render a role for an error message the user will see.
+
+    Never interpolates the raw value: an unrecognized `role` could be anything the caller passed,
+    and echoing arbitrary input into a user-facing string is how you get log injection and worse.
+    """
+    if isinstance(role, str) and role in CAPABILITIES:
+        return role
+    return "unknown"

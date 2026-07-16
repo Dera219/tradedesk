@@ -65,9 +65,10 @@ class OrderRequest(BaseModel):
             if self.order_type is OrderType.LIMIT
             else " at the current market price"
         )
+        duration = "for the day" if self.time_in_force is TimeInForce.DAY else "until cancelled"
         return (
             f"{self.side.value.upper()} {self.quantity} share(s) of {self.symbol}"
-            f"{price}, good {'for the day' if self.time_in_force is TimeInForce.DAY else 'until cancelled'}."
+            f"{price}, good {duration}."
         )
 
 
