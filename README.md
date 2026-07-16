@@ -33,14 +33,25 @@ Chat UI → FastAPI → LangGraph StateGraph → handler node → reply
 
 ```
 app/
-├── graph/nodes/     # classify, router, handlers
+├── agent.py         # hand-rolled orchestration, kept as the graph's differential-test oracle
+├── graph/
+│   ├── build.py     # the compiled LangGraph StateGraph
+│   ├── handlers.py  # one async handler per intent
+│   ├── classifier.py
+│   ├── confirmation.py  # the gate's yes/no parsing
+│   ├── tools.py     # the ONLY place broker calls happen; role checks live here
+│   └── state.py
 ├── schemas/         # Pydantic intent taxonomy + order models
-├── rag/             # ingest (heading-based chunking), store, retrieve
+├── rag/             # chunking (heading-based + naive) + retrieval
 ├── brokerage/       # BrokerageClient interface → mock | alpaca
-├── auth/            # role decorators
-└── mcp/             # read-only tool surface (stretch)
-corpus/              # ~20 self-authored brokerage policy + education docs
+└── auth/            # role decorators
+corpus/              # self-authored brokerage policy + education docs (1 of ~13 written)
+scripts/demo.py      # the DSN walkthrough
 ```
+
+Directories are created when there is something to put in them. `app/mcp/` and `app/main.py`
+don't exist yet because Part 5 and the FastAPI layer aren't built — an empty folder is a promise,
+not progress.
 
 ## The safety design
 
