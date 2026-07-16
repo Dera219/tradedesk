@@ -13,8 +13,8 @@ import asyncio
 from decimal import Decimal
 from pathlib import Path
 
-from app.agent import TradeDeskAgent
 from app.brokerage.mock import MockBroker
+from app.graph.build import GraphAgent
 from app.graph.classifier import KeywordClassifier
 from app.graph.state import ConversationState
 from app.rag.chunking import chunk_corpus
@@ -38,9 +38,9 @@ def show(state: ConversationState, message: str) -> None:
     print(f"\033[1magent >\033[0m {reply}")
 
 
-def build_agent(role: str = "trader") -> tuple[TradeDeskAgent, MockBroker, ConversationState]:
+def build_agent(role: str = "trader") -> tuple[GraphAgent, MockBroker, ConversationState]:
     broker = MockBroker(cash=Decimal("100000"), allowlist=ALLOWLIST)
-    agent = TradeDeskAgent(
+    agent = GraphAgent(
         classifier=KeywordClassifier(),
         retriever=LexicalRetriever(chunk_corpus(CORPUS)),
         broker=broker,
@@ -51,6 +51,14 @@ def build_agent(role: str = "trader") -> tuple[TradeDeskAgent, MockBroker, Conve
 
 async def main() -> None:
     agent, broker, state = build_agent()
+
+    rule("0. The compiled LangGraph")
+    print("  Every turn runs through this. Read off the real wiring, not a drawing:\n")
+    for source, target in sorted(agent.edges()):
+        note = "   <-- the ONLY path to a fill" if target == "confirmation" else ""
+        print(f"    {source:18s} -> {target}{note}")
+    print("\n  Note what is absent: trade -> confirmation. Proposing an order cannot flow")
+    print("  into filling it. The gate is the graph's shape, not a convention.")
 
     rule("1. Education — grounded in the corpus, with a citation")
     for message in [

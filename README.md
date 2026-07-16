@@ -119,8 +119,39 @@ uvicorn app.main:app --reload
 
 ## Status
 
-Scaffold. Interfaces and safety-critical schemas are written; handler implementations are not.
-Start at Part 0 per the brief: read every file and trace a message end-to-end.
+**Parts 0–2 work.** `python scripts/demo.py` runs the full conversation through the compiled
+LangGraph, fully offline — mock broker, lexical retriever, keyword classifier. No API key, no
+network. 160 tests, ruff clean, mypy strict clean.
+
+That offline property is deliberate. Venue wifi is a real risk, and every stand-in sits behind
+the same interface as its real counterpart (`MockBroker`/Alpaca, `LexicalRetriever`/Chroma,
+`KeywordClassifier`/LLM). The safety properties live in Python, so swapping any of them cannot
+remove them.
+
+### The gate is the graph's shape
+
+The compiled wiring, printed from the real graph rather than drawn by hand:
+
+```
+__start__          -> classify_intent
+__start__          -> confirmation      <-- the ONLY path to a fill
+classify_intent    -> educate | research | portfolio | trade | cancel_modify | out_of_scope
+trade              -> __end__
+confirmation       -> __end__
+```
+
+Note what's absent: **there is no `trade -> confirmation` edge.** Proposing an order cannot flow
+into filling it. `test_trade_has_no_edge_to_confirmation` fails if anyone ever adds one for
+convenience.
+
+The pending-order check is the conditional *entry* point rather than a node after classification.
+If classification ran first, "yes" would be handed to the classifier and routed by its own logic,
+leaving the order alive in state for a later turn to resurrect.
+
+### Still to build
+
+LLM classifier, Chroma retriever, Alpaca broker (Part 3), MCP surface (Part 5), `app/main.py`
+FastAPI wiring, and ~12 more corpus docs.
 
 ## License
 

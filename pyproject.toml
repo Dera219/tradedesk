@@ -32,6 +32,9 @@ dev = [
     "respx>=0.21",
 ]
 mcp = ["mcp>=1.1"]
+#: `GraphAgent.draw()` only. Not needed to run the agent — it renders the ASCII graph diagram
+#: for the DSN slide. `GraphAgent.edges()` gives the same wiring with no extra dependency.
+viz = ["grandalf>=0.8"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
