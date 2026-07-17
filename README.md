@@ -116,13 +116,22 @@ prompt failing at the Python role check.
 Polish stops at day 7 if time runs short. Because mock and Alpaca share one interface, the demo
 runs fully offline — worth rehearsing that path at least once, since venue wifi is a real risk.
 
-## Setup
+## Run it
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env    # add your Alpaca PAPER keys
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload      # then open http://localhost:8000
+```
+
+A single-page chat UI backed by FastAPI. No API key needed — the whole stack (mock broker,
+lexical retriever, keyword classifier) runs offline, so the demo can't be broken by venue wifi.
+`.env` and Alpaca keys are only needed for the Part 3 live-data swap, which isn't wired yet.
+
+Or run the scripted walkthrough without a browser:
+
+```bash
+python scripts/demo.py
 ```
 
 **Never commit `.env`.** It is gitignored. Use only paper-trading keys from
@@ -159,10 +168,20 @@ The pending-order check is the conditional *entry* point rather than a node afte
 If classification ran first, "yes" would be handed to the classifier and routed by its own logic,
 leaving the order alive in state for a later turn to resurrect.
 
+### Done
+
+- Parts 0–2: RAG pipeline, acting agent, confirmation gate, compiled LangGraph
+- **FastAPI app + chat UI** ([`app/main.py`](app/main.py)) — per-session state, the gate verified
+  across separate HTTP requests, sessions isolated from each other
+- **Full corpus** — 13 self-authored docs (PDT rule, order types, settlement, margin, fees,
+  market hours, spread, short selling, dividends, account types, risk, FAQ, time-in-force)
+- 175 tests (unit + API integration), ruff + mypy strict clean
+
 ### Still to build
 
-LLM classifier, Chroma retriever, Alpaca broker (Part 3), MCP surface (Part 5), `app/main.py`
-FastAPI wiring, and ~12 more corpus docs.
+LLM classifier (swap `KeywordClassifier`), Chroma retriever (swap `LexicalRetriever`), Alpaca
+broker for Part 3 (swap `MockBroker`), MCP surface for Part 5. Each is a one-interface swap — the
+seams exist.
 
 ## License
 

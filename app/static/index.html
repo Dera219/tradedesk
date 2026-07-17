@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TradeDesk</title>
+<style>
+  :root { color-scheme: light dark; --accent: #2f5d50; --bg: #fbfbfa; --surface:#fff; --border:#e3e1dc; --text:#16150f; --muted:#5c5a52; }
+  @media (prefers-color-scheme: dark){ :root{ --bg:#12120f; --surface:#1a1a16; --border:#2e2d28; --text:#f2f0ea; --muted:#a3a09a; --accent:#7fbfa8; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); display:flex; flex-direction:column; height:100vh; }
+  header { padding: 12px 16px; border-bottom:1px solid var(--border); }
+  header b { font-size: 1.1rem; }
+  header span { color: var(--muted); font-size:.85rem; margin-left:8px; }
+  #log { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; width:min(100%, 720px); margin:0 auto; }
+  .msg { max-width: 85%; padding:10px 14px; border-radius:14px; white-space:pre-wrap; line-height:1.45; }
+  .user { align-self:flex-end; background:var(--accent); color:#fff; }
+  .agent { align-self:flex-start; background:var(--surface); border:1px solid var(--border); }
+  .cite { align-self:flex-start; font-size:.75rem; color:var(--muted); margin-top:-6px; }
+  .confirm { align-self:flex-start; font-size:.75rem; color:var(--accent); font-weight:600; }
+  form { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); width:min(100%, 720px); margin:0 auto; width:100%; }
+  #row { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); width:min(100%,720px); margin:0 auto; }
+  input { flex:1; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:1rem; }
+  button { padding:10px 16px; border-radius:10px; border:none; background:var(--accent); color:#fff; font-size:1rem; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+</style>
+</head>
+<body>
+<header><b>TradeDesk</b><span>paper trading · not financial advice</span></header>
+<div id="log"></div>
+<div id="row">
+  <input id="box" placeholder="Ask about trading, request a quote, or place an order…" autocomplete="off" autofocus />
+  <button id="send">Send</button>
+</div>
+<script>
+let sessionId = null;
+const log = document.getElementById('log');
+const box = document.getElementById('box');
+const send = document.getElementById('send');
+
+function bubble(text, cls){ const d=document.createElement('div'); d.className='msg '+cls; d.textContent=text; log.appendChild(d); log.scrollTop=log.scrollHeight; return d; }
+function note(text, cls){ const d=document.createElement('div'); d.className=cls; d.textContent=text; log.appendChild(d); log.scrollTop=log.scrollHeight; }
+
+async function start(){
+  const r = await fetch('/api/session', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({role:'trader'})});
+  const d = await r.json(); sessionId = d.session_id; bubble(d.greeting, 'agent');
+}
+async function sendMsg(){
+  const text = box.value.trim(); if(!text || !sessionId) return;
+  box.value=''; send.disabled=true; bubble(text,'user');
+  try{
+    const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:sessionId, message:text})});
+    if(!r.ok){ note('(session error — reload the page)', 'cite'); return; }
+    const d = await r.json();
+    bubble(d.reply, 'agent');
+    if(d.citations && d.citations.length) note('Source: ' + d.citations.join(' · '), 'cite');
+    if(d.awaiting_confirmation) note("Awaiting your confirmation — reply 'yes' to place it.", 'confirm');
+  } finally { send.disabled=false; box.focus(); }
+}
+send.onclick = sendMsg;
+box.addEventListener('keydown', e => { if(e.key==='Enter') sendMsg(); });
+start();
+</script>
+</body>
+</html>
