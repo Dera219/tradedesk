@@ -13,6 +13,7 @@ by asking the agent, and the agent gates it.
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from decimal import Decimal
@@ -55,11 +56,25 @@ def build_agent_for(role: Role) -> GraphAgent:
     )
 
 
+def _build_classifier() -> object:
+    """Pick the intent classifier.
+
+    Defaults to the offline `KeywordClassifier` so the demo needs no API key. Set
+    `TRADEDESK_LLM_CLASSIFIER=1` (and provide `ANTHROPIC_API_KEY`) to use the real Claude-backed
+    classifier — the same swap the proposal describes, and the only line that changes to make it.
+    """
+    if os.getenv("TRADEDESK_LLM_CLASSIFIER") == "1":
+        from app.graph.llm_classifier import LLMClassifier
+
+        return LLMClassifier()
+    return KeywordClassifier()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Build the corpus index once at startup, not per request — chunking and BM25 setup are not
     # free, and a chat endpoint that re-indexed on every message would be needlessly slow.
-    services["classifier"] = KeywordClassifier()
+    services["classifier"] = _build_classifier()
     services["retriever"] = LexicalRetriever(chunk_corpus(CORPUS))
     services["sessions"] = SessionStore()
     services["agents"] = {}  # session_id -> GraphAgent (each owns its broker)
