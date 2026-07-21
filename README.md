@@ -196,12 +196,17 @@ leaving the order alive in state for a later turn to resurrect.
   recorded by a spy, not "the agent said no". `python scripts/run_evals.py`; runs in CI via
   pytest, and the same suite runs against the LLM classifier to prove the swap didn't weaken
   the gate
-- 215 tests (unit + API integration + evals), ruff + mypy strict clean
+- **Part 5: MCP server** ([`app/mcp_server.py`](app/mcp_server.py)) — TradeDesk's tools for
+  any MCP client (`python -m app.mcp_server`). The confirmation gate survives the protocol as
+  a two-tool handshake: `propose_order` returns a single-use token with a 120s TTL;
+  `confirm_order` executes only with that exact token, and any failed confirm burns the
+  proposal. `TRADEDESK_MCP_ROLE=compliance` starts it read-only; `TRADEDESK_BROKER=alpaca`
+  routes to the paper account
+- 226 tests (unit + API integration + evals), ruff + mypy strict clean
 
 ### Still to build
 
-Chroma retriever (swap `LexicalRetriever`), MCP surface for Part 5. Each is a one-interface
-swap — the seams exist.
+Chroma retriever (swap `LexicalRetriever`). The seam exists.
 
 ## License
 
