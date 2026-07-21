@@ -190,7 +190,13 @@ leaving the order alive in state for a later turn to resurrect.
 - **Part 3: Alpaca paper broker** ([`app/brokerage/alpaca.py`](app/brokerage/alpaca.py)) —
   paper host hard-coded, Decimal-safe money, idempotent retries via `client_order_id`, error
   taxonomy mapped to the handlers' language; opt-in via `TRADEDESK_BROKER=alpaca`
-- 197 tests (unit + API integration), ruff + mypy strict clean
+- **Adversarial eval suite** ([`evals/`](evals/)) — 18 scripted attack conversations
+  (prompt injection, fake authority, roleplay jailbreaks, stale confirmations, role
+  escalation) asserted on *behavior*: the strongest check is "the broker was never called",
+  recorded by a spy, not "the agent said no". `python scripts/run_evals.py`; runs in CI via
+  pytest, and the same suite runs against the LLM classifier to prove the swap didn't weaken
+  the gate
+- 215 tests (unit + API integration + evals), ruff + mypy strict clean
 
 ### Still to build
 
