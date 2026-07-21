@@ -40,18 +40,27 @@ services: dict[str, Any] = {}
 
 
 def build_agent_for(role: Role) -> GraphAgent:
-    """A fresh agent bound to its own mock broker per role.
+    """A fresh agent per session.
 
-    Each role gets its own broker instance so the compliance persona genuinely sees a separate
-    account surface — it is read-only and cross-account by design, and sharing one broker object
-    would blur that. The retriever and classifier are stateless and shared.
+    Mock mode: each role gets its own broker instance so the compliance persona genuinely sees a
+    separate account surface — it is read-only and cross-account by design, and sharing one
+    broker object would blur that. The retriever and classifier are stateless and shared.
+
+    Alpaca mode: every session shares the single AlpacaBroker built at startup. There is only
+    one paper account behind the API keys, so per-session instances would be a fiction — and
+    sharing reuses the HTTP connection pool.
     """
-    from app.brokerage.mock import MockBroker
+    if services.get("alpaca") is not None:
+        broker = services["alpaca"]
+    else:
+        from app.brokerage.mock import MockBroker
+
+        broker = MockBroker(cash=Decimal("100000"), allowlist=ALLOWLIST)
 
     return GraphAgent(
         classifier=services["classifier"],
         retriever=services["retriever"],
-        broker=MockBroker(cash=Decimal("100000"), allowlist=ALLOWLIST),
+        broker=broker,
         allowlist=ALLOWLIST,
     )
 
@@ -70,6 +79,20 @@ def _build_classifier() -> object:
     return KeywordClassifier()
 
 
+def _build_alpaca() -> object | None:
+    """Part 3 opt-in: TRADEDESK_BROKER=alpaca routes orders to Alpaca paper trading.
+
+    Same shape as the classifier swap — default stays offline so the demo needs no keys, and
+    the real integration is one env var away. Construction fails loudly at startup if the
+    APCA_* credentials are missing; a broker that fails mid-conversation is a bad demo moment.
+    """
+    if os.getenv("TRADEDESK_BROKER", "").lower() != "alpaca":
+        return None
+    from app.brokerage.alpaca import AlpacaBroker
+
+    return AlpacaBroker()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Build the corpus index once at startup, not per request — chunking and BM25 setup are not
@@ -78,7 +101,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     services["retriever"] = LexicalRetriever(chunk_corpus(CORPUS))
     services["sessions"] = SessionStore()
     services["agents"] = {}  # session_id -> GraphAgent (each owns its broker)
+    services["alpaca"] = _build_alpaca()
     yield
+    if services["alpaca"] is not None:
+        await services["alpaca"].aclose()
     services.clear()
 
 

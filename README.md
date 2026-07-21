@@ -126,7 +126,17 @@ uvicorn app.main:app --reload      # then open http://localhost:8000
 
 A single-page chat UI backed by FastAPI. No API key needed — the whole stack (mock broker,
 lexical retriever, keyword classifier) runs offline, so the demo can't be broken by venue wifi.
-`.env` and Alpaca keys are only needed for the Part 3 live-data swap, which isn't wired yet.
+
+Two opt-in swaps, both env-var-gated so the offline default stays the default:
+
+```bash
+TRADEDESK_LLM_CLASSIFIER=1         # Claude-backed intent classifier (needs ANTHROPIC_API_KEY)
+TRADEDESK_BROKER=alpaca            # real Alpaca paper trading (needs APCA_API_KEY_ID + APCA_API_SECRET_KEY)
+```
+
+The Alpaca client (`app/brokerage/alpaca.py`) hard-codes the paper-trading host — there is no
+configuration that points it at the live API. Duplicate `client_order_id` submissions return the
+original fill instead of re-buying, so a retry after a timeout can never double-execute.
 
 Or run the scripted walkthrough without a browser:
 
@@ -175,13 +185,17 @@ leaving the order alive in state for a later turn to resurrect.
   across separate HTTP requests, sessions isolated from each other
 - **Full corpus** — 13 self-authored docs (PDT rule, order types, settlement, margin, fees,
   market hours, spread, short selling, dividends, account types, risk, FAQ, time-in-force)
-- 175 tests (unit + API integration), ruff + mypy strict clean
+- **LLM classifier** ([`app/graph/llm_classifier.py`](app/graph/llm_classifier.py)) — Claude
+  structured output, fails closed to `out_of_scope`, opt-in via `TRADEDESK_LLM_CLASSIFIER=1`
+- **Part 3: Alpaca paper broker** ([`app/brokerage/alpaca.py`](app/brokerage/alpaca.py)) —
+  paper host hard-coded, Decimal-safe money, idempotent retries via `client_order_id`, error
+  taxonomy mapped to the handlers' language; opt-in via `TRADEDESK_BROKER=alpaca`
+- 197 tests (unit + API integration), ruff + mypy strict clean
 
 ### Still to build
 
-LLM classifier (swap `KeywordClassifier`), Chroma retriever (swap `LexicalRetriever`), Alpaca
-broker for Part 3 (swap `MockBroker`), MCP surface for Part 5. Each is a one-interface swap — the
-seams exist.
+Chroma retriever (swap `LexicalRetriever`), MCP surface for Part 5. Each is a one-interface
+swap — the seams exist.
 
 ## License
 
