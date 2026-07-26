@@ -93,12 +93,28 @@ def _build_alpaca() -> object | None:
     return AlpacaBroker()
 
 
+def _build_retriever() -> object:
+    """The retriever swap the LexicalRetriever docstrings promised.
+
+    TRADEDESK_RETRIEVER=chroma switches to embedding retrieval (ChromaRetriever). The default
+    stays lexical: it needs no model download, and the demo must survive venue wifi. Note the
+    Chroma default embedder fetches model weights on FIRST startup — do that before the demo,
+    not during it.
+    """
+    chunks = chunk_corpus(CORPUS)
+    if os.getenv("TRADEDESK_RETRIEVER", "").lower() == "chroma":
+        from app.rag.vector import ChromaRetriever
+
+        return ChromaRetriever(chunks)
+    return LexicalRetriever(chunks)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Build the corpus index once at startup, not per request — chunking and BM25 setup are not
+    # Build the corpus index once at startup, not per request — chunking and index setup are not
     # free, and a chat endpoint that re-indexed on every message would be needlessly slow.
     services["classifier"] = _build_classifier()
-    services["retriever"] = LexicalRetriever(chunk_corpus(CORPUS))
+    services["retriever"] = _build_retriever()
     services["sessions"] = SessionStore()
     services["agents"] = {}  # session_id -> GraphAgent (each owns its broker)
     services["alpaca"] = _build_alpaca()

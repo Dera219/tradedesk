@@ -202,11 +202,18 @@ leaving the order alive in state for a later turn to resurrect.
   `confirm_order` executes only with that exact token, and any failed confirm burns the
   proposal. `TRADEDESK_MCP_ROLE=compliance` starts it read-only; `TRADEDESK_BROKER=alpaca`
   routes to the paper account
-- 226 tests (unit + API integration + evals), ruff + mypy strict clean
+- **Chroma vector retriever** ([`app/rag/vector.py`](app/rag/vector.py)) — embedding
+  retrieval (ONNX MiniLM via Chroma) behind the same `Retriever` protocol; opt-in via
+  `TRADEDESK_RETRIEVER=chroma`. The refusal threshold survives the swap: scores are cosine
+  similarity in [0, 1], and out-of-domain queries land near 0 — verified with real embeddings
+  ("day trading with a small account" → PDT doc at 0.65; a recipe question → 0.06)
+- 233 tests (unit + API integration + evals), ruff + mypy strict clean
 
 ### Still to build
 
-Chroma retriever (swap `LexicalRetriever`). The seam exists.
+Nothing — every planned part (0–5) plus the eval suite and the Chroma retriever is built.
+Remaining switches are environmental: `ANTHROPIC_API_KEY` for the LLM classifier,
+`APCA_*` keys for live paper trading.
 
 ## License
 
