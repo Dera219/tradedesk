@@ -177,3 +177,16 @@ async def test_network_failure_becomes_brokerage_error() -> None:
     broker = broker_with(handler)
     with pytest.raises(BrokerageError, match="Could not reach Alpaca"):
         await broker.get_account()
+
+
+def test_trading_base_is_hardcoded_to_paper() -> None:
+    """The audit claim 'no configuration path to live funds' — pinned as a test.
+
+    If someone ever parameterizes the base URL, this fails and forces the change to be a
+    loud, reviewed decision instead of a quiet refactor.
+    """
+    from app.brokerage import alpaca
+
+    assert alpaca._TRADING_BASE == "https://paper-api.alpaca.markets"
+    broker = broker_with(lambda request: httpx.Response(200, json={}))
+    assert "paper-api.alpaca.markets" in str(broker._trading.base_url)
