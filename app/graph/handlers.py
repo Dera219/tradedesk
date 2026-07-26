@@ -205,11 +205,21 @@ async def handle_confirmation(
         state.reply = f"The order didn't go through: {exc}"
         return state
 
-    state.reply = (
-        f"Filled: {result.filled_quantity} share(s) of {pending.request.symbol} "
-        f"at ${result.filled_avg_price}. Order ID {result.order_id}. "
-        f"(Paper trading — no real money moved.)"
-    )
+    if result.filled_avg_price is not None and result.filled_quantity > 0:
+        state.reply = (
+            f"Filled: {result.filled_quantity} share(s) of {pending.request.symbol} "
+            f"at ${result.filled_avg_price}. Order ID {result.order_id}. "
+            f"(Paper trading — no real money moved.)"
+        )
+    else:
+        # A real broker accepts orders outside market hours and queues them — the mock always
+        # fills instantly, which hid this case until the first weekend run against Alpaca
+        # produced "Filled: 0 share(s) at $None". Say what actually happened.
+        state.reply = (
+            f"Order accepted: {pending.request.summarize()} "
+            f"Status: {result.status} — it will execute when the market next opens. "
+            f"Order ID {result.order_id}. (Paper trading — no real money moved.)"
+        )
     return state
 
 

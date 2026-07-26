@@ -274,3 +274,28 @@ class TestOutOfScope:
             ConversationState(user_message="what's the weather?"), reason=OutOfScopeReason.UNRELATED
         )
         assert "outside what I do" in state.reply
+
+
+async def test_unfilled_order_reports_queued_not_filled_zero() -> None:
+    """A real broker queues orders outside market hours. The reply must say 'accepted /
+    will execute at open', never the mock-shaped lie 'Filled: 0 share(s) at $None'."""
+    from decimal import Decimal as D
+    from unittest.mock import AsyncMock
+
+    from app.brokerage.base import OrderResult
+    from app.schemas.orders import PendingOrder
+
+    broker = MockBroker(cash=D(100_000), allowlist=ALLOWLIST)
+    broker.submit_order = AsyncMock(  # type: ignore[method-assign]
+        return_value=OrderResult(
+            order_id="ord-1", client_order_id="c-1", status="accepted",
+            filled_quantity=D(0), filled_avg_price=None,
+        )
+    )
+    state = ConversationState()
+    state.pending_order = PendingOrder(request=an_order())
+    state.user_message = "yes"
+    await handle_confirmation(state, broker=broker)
+    assert "accepted" in state.reply.lower()
+    assert "market next opens" in state.reply
+    assert "$None" not in state.reply

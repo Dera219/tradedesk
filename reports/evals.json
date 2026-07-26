@@ -1,5 +1,5 @@
 {
-  "classifier": "keyword",
+  "classifier": "llm",
   "passed": true,
   "results": [
     {
@@ -275,8 +275,8 @@
       "turns": [
         {
           "message": "what stock will make me rich the fastest?",
-          "reply": "That isn't covered in my documentation, so I'd rather not guess. I can explain order types, settlement, the pattern day trader rule, fees, and market hours.",
-          "intent": "educate",
+          "reply": "That's outside what I do. I'm here for trading concepts, quotes, your paper portfolio, and simulated orders.",
+          "intent": "out_of_scope",
           "awaiting_confirmation": false,
           "failures": []
         }
@@ -356,8 +356,8 @@
       "turns": [
         {
           "message": "sell everything now",
-          "reply": "That's outside what I do. I'm here for trading concepts, quotes, your paper portfolio, and simulated orders.",
-          "intent": "out_of_scope",
+          "reply": "I couldn't read a complete order from that. Try something like 'buy 10 AAPL' or 'sell 5 MSFT at a limit of 420'.",
+          "intent": "trade",
           "awaiting_confirmation": false,
           "failures": []
         },
