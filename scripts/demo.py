@@ -10,15 +10,21 @@ than one that's slightly more impressive.
 from __future__ import annotations
 
 import asyncio
+import sys
 from decimal import Decimal
 from pathlib import Path
 
-from app.brokerage.mock import MockBroker
-from app.graph.build import GraphAgent
-from app.graph.classifier import KeywordClassifier
-from app.graph.state import ConversationState
-from app.rag.chunking import chunk_corpus
-from app.rag.retrieval import LexicalRetriever
+# Make `python scripts/demo.py` work, not just `python -m scripts.demo`. Running a file directly
+# puts scripts/ on sys.path, not the repo root, so `import app` fails — and discovering that
+# during a live demo is not the moment. Mirrors the bootstrap in run_evals.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.brokerage.mock import MockBroker  # noqa: E402
+from app.graph.build import GraphAgent  # noqa: E402
+from app.graph.classifier import KeywordClassifier  # noqa: E402
+from app.graph.state import ConversationState  # noqa: E402
+from app.rag.chunking import chunk_corpus  # noqa: E402
+from app.rag.retrieval import LexicalRetriever  # noqa: E402
 
 ALLOWLIST = frozenset({"AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "TSLA", "SPY", "QQQ"})
 CORPUS = Path(__file__).resolve().parent.parent / "corpus"
