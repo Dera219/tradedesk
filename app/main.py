@@ -178,7 +178,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
     new_state = await agent.handle(state, req.message)
     # Persist the returned state: ainvoke produces a new state object, and the pending order lives
     # in it. Dropping this write would break the confirmation gate across turns.
-    services["sessions"]._sessions[req.session_id] = new_state
+    sessions.save(req.session_id, new_state)
 
     return ChatResponse(
         reply=new_state.reply,

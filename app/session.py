@@ -34,6 +34,16 @@ class SessionStore:
     def get(self, session_id: str) -> ConversationState | None:
         return self._sessions.get(session_id)
 
+    def save(self, session_id: str, state: ConversationState) -> None:
+        """Persist the state a turn produced.
+
+        The graph returns a NEW state object rather than mutating the old one, and the pending
+        order lives inside it — so a turn that isn't saved silently breaks the confirmation gate
+        across requests. Callers go through here rather than reaching into the dict, so that
+        rule stays enforceable in one place.
+        """
+        self._sessions[session_id] = state
+
     def exists(self, session_id: str) -> bool:
         return session_id in self._sessions
 
