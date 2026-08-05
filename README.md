@@ -39,19 +39,21 @@ app/
 │   ├── handlers.py  # one async handler per intent
 │   ├── classifier.py
 │   ├── confirmation.py  # the gate's yes/no parsing
+│   ├── llm_classifier.py  # Claude-backed classifier, fails closed to out_of_scope
 │   ├── tools.py     # the ONLY place broker calls happen; role checks live here
 │   └── state.py
 ├── schemas/         # Pydantic intent taxonomy + order models
-├── rag/             # chunking (heading-based + naive) + retrieval
-├── brokerage/       # BrokerageClient interface → mock | alpaca
-└── auth/            # role decorators
-corpus/              # self-authored brokerage policy + education docs (1 of ~13 written)
-scripts/demo.py      # the DSN walkthrough
+├── rag/             # chunking (heading-based) + lexical and vector retrievers
+├── brokerage/       # BrokerageClient interface → mock | alpaca (paper only)
+├── auth/            # role decorators
+├── main.py          # FastAPI: sessions in, replies out — no logic of its own
+└── mcp_server.py    # Part 5: the gate as a propose/confirm token handshake
+corpus/              # 14 self-authored brokerage policy + education docs
+evals/               # 18 adversarial scenarios, asserted at the broker
+scripts/demo.py      # the DSN walkthrough (offline)
+scripts/run_evals.py # the adversarial scorecard
+docs/SAFETY_AUDIT.md # 8 risks, each pinned to a named test
 ```
-
-Directories are created when there is something to put in them. `app/mcp/` and `app/main.py`
-don't exist yet because Part 5 and the FastAPI layer aren't built — an empty folder is a promise,
-not progress.
 
 ## The safety design
 
@@ -82,11 +84,11 @@ reused on every retry, so a timeout that hides a successful fill cannot double-b
 | Part | Implementation |
 |---|---|
 | 0 — core | Trace a message end-to-end; identify router splice points |
-| 1 — core | RAG over ~20 self-authored docs; heading-based chunking with title prefixing; low-confidence retrieval returns an honest "not in my docs" |
+| 1 — core | RAG over 14 self-authored docs; heading-based chunking with title prefixing; low-confidence retrieval returns an honest "not in my docs" |
 | 2 — core | LangGraph: `classify_intent` → router → handlers; trades pass the confirmation gate against a mock broker |
 | 3 — ext | Swap mock → Alpaca behind `BrokerageClient`; env-var auth, error mapping, retries |
 | 4 — ext | Compliance persona: read-only, cross-account, cannot trade |
-| 5 — ext | MCP server exposing read-only tools; `place_order` deliberately excluded |
+| 5 — ext | MCP server; the gate survives the protocol as a `propose_order` → single-use token → `confirm_order` handshake |
 
 ## Demo plan
 
@@ -102,19 +104,12 @@ reasoning more than a clean happy path.
 **One design decision:** confirmation gate + code-level authorization, demonstrated by a jailbreak
 prompt failing at the Python role check.
 
-## Timeline
+## Governance
 
-| Days | Work |
-|---|---|
-| 1–2 | Skeleton walkthrough, intent router |
-| 3–4 | RAG pipeline |
-| 5–7 | **Full acting agent on mock broker — minimum demoable product** |
-| 8–9 | Alpaca integration |
-| 10 | Compliance persona |
-| — | MCP (stretch) |
-
-Polish stops at day 7 if time runs short. Because mock and Alpaca share one interface, the demo
-runs fully offline — worth rehearsing that path at least once, since venue wifi is a real risk.
+[`docs/SAFETY_AUDIT.md`](docs/SAFETY_AUDIT.md) works through eight risks — unconfirmed execution,
+prompt injection, role escalation, double execution, financial advice, hallucinated education,
+reaching a live endpoint, and fat-finger orders. Every "test performed" cell names a real eval
+scenario or unit test, and every residual risk is stated rather than rounded to zero.
 
 ## Run it
 
@@ -149,9 +144,9 @@ python scripts/demo.py
 
 ## Status
 
-**Parts 0–2 work.** `python scripts/demo.py` runs the full conversation through the compiled
-LangGraph, fully offline — mock broker, lexical retriever, keyword classifier. No API key, no
-network. 160 tests, ruff clean, mypy strict clean.
+**Parts 0–5 work, plus the eval suite and both retrievers.** `python scripts/demo.py` runs the
+full conversation through the compiled LangGraph, fully offline — mock broker, lexical retriever,
+keyword classifier. No API key, no network. 235 tests, ruff clean, mypy strict clean.
 
 That offline property is deliberate. Venue wifi is a real risk, and every stand-in sits behind
 the same interface as its real counterpart (`MockBroker`/Alpaca, `LexicalRetriever`/Chroma,
@@ -183,7 +178,7 @@ leaving the order alive in state for a later turn to resurrect.
 - Parts 0–2: RAG pipeline, acting agent, confirmation gate, compiled LangGraph
 - **FastAPI app + chat UI** ([`app/main.py`](app/main.py)) — per-session state, the gate verified
   across separate HTTP requests, sessions isolated from each other
-- **Full corpus** — 13 self-authored docs (PDT rule, order types, settlement, margin, fees,
+- **Full corpus** — 14 self-authored docs (PDT rule, order types, settlement, margin, fees,
   market hours, spread, short selling, dividends, account types, risk, FAQ, time-in-force)
 - **LLM classifier** ([`app/graph/llm_classifier.py`](app/graph/llm_classifier.py)) — Claude
   structured output, fails closed to `out_of_scope`, opt-in via `TRADEDESK_LLM_CLASSIFIER=1`
@@ -207,7 +202,7 @@ leaving the order alive in state for a later turn to resurrect.
   `TRADEDESK_RETRIEVER=chroma`. The refusal threshold survives the swap: scores are cosine
   similarity in [0, 1], and out-of-domain queries land near 0 — verified with real embeddings
   ("day trading with a small account" → PDT doc at 0.65; a recipe question → 0.06)
-- 233 tests (unit + API integration + evals), ruff + mypy strict clean
+- 235 tests (unit + API integration + evals), ruff + mypy strict clean
 
 ### Still to build
 

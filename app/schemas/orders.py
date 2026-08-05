@@ -34,7 +34,9 @@ class OrderRequest(BaseModel):
 
     Constructing one of these is explicitly NOT authorization to send it. It is a proposal that
     must survive server-side checks and an explicit user confirmation first. The type system
-    can't enforce that, so the graph does: see app/graph/nodes/trade.py.
+    can't enforce that, so the graph does: the trade node (app/graph/build.py) calls
+    handle_trade (app/graph/handlers.py), which stores the proposal and ENDS the turn.
+    Only handle_confirmation, on a later turn, may submit it.
     """
 
     model_config = {"frozen": True}
