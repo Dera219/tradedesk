@@ -48,7 +48,7 @@ def _default_embedding_function() -> Any:
 class ChromaRetriever:
     """Drop-in for `LexicalRetriever` behind the same `Retriever` protocol.
 
-    In-memory by default: the corpus is 13 markdown docs that index in well under a second at
+    In-memory by default: the corpus is 14 markdown docs that index in well under a second at
     startup, so persistence would only add a staleness bug (edit a doc, serve stale vectors).
     """
 

@@ -104,6 +104,12 @@ reasoning more than a clean happy path.
 **One design decision:** confirmation gate + code-level authorization, demonstrated by a jailbreak
 prompt failing at the Python role check.
 
+## Understanding the code
+
+[`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md) walks the path a message takes through
+the system — front door, graph, classifier, proposal, role checks, gate — plus the RAG failures
+that shaped the design, and short answers to the questions the design invites.
+
 ## Governance
 
 [`docs/SAFETY_AUDIT.md`](docs/SAFETY_AUDIT.md) works through eight risks — unconfirmed execution,
