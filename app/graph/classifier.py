@@ -122,9 +122,15 @@ _NOT_A_TICKER = frozenset(
 class KeywordClassifier:
     """Deterministic rules. Good enough to demo the graph offline; not good enough to ship.
 
-    It genuinely cannot understand "I'd rather not hold NVDA through earnings" as a sell. That
-    limitation is the argument for the LLM version, and it's worth stating plainly rather than
-    pretending the rules are adequate.
+    It reads keywords, not meaning. "get me out of my apple position" is a sell request and it
+    routes to PORTFOLIO; "what happens between when I trade and when I actually get the shares"
+    is the settlement doc and it routes to OUT_OF_SCOPE. Both are handled correctly by the LLM
+    version (verified, not assumed). That gap is the argument for it, and it's worth stating
+    plainly rather than pretending the rules are adequate.
+
+    Note the LLM version does NOT read "I'd rather not hold NVDA through earnings" as a sell
+    either — it classifies it out_of_scope. That is the right call: a musing is not an order,
+    and an agent that turns hesitation into a trade would be worse than one that asks.
 
     The one thing it gets right on purpose: advice-seeking is checked FIRST. "Should I buy NVDA?"
     contains "buy", so any rule that checks trade verbs first would route a request for financial
