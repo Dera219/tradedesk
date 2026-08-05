@@ -40,16 +40,35 @@ _ADVICE = (
     re.compile(r"\b(recommend|advice|advise)\b", re.I),
     re.compile(r"\b(will|is)\s+\w+\s+(go|going)\s+(up|down)\b", re.I),
     re.compile(r"\bworth\s+(buying|selling)\b", re.I),
+    # Stock-picking, however it is phrased: "what stock will make me rich", "which stock is
+    # best", "what should I invest in". Asking WHICH security to hold is a recommendation
+    # request even when it is dressed as a question about a concept.
+    re.compile(r"\b(what|which)\s+(stock|share|ticker|symbol|compan\w+)\b", re.I),
+    re.compile(r"\bmake\s+me\s+(rich|money)\b", re.I),
+    re.compile(r"\b(invest|put\s+my\s+money)\s+in\b", re.I),
 )
 
 _TRADE = re.compile(r"\b(buy|sell|purchase|short|long)\b", re.I)
 _CANCEL = re.compile(r"\b(cancel|modify|change)\s+(my\s+)?(order|trade)\b", re.I)
-_PORTFOLIO = re.compile(r"\b(portfolio|positions?|holdings?|p&l|pnl|balance|account|cash)\b", re.I)
+_PORTFOLIO = re.compile(
+    # "account" is both a portfolio word ("my account balance") and a corpus topic
+    # ("what account types are there"). The lookahead hands the concept question to educate
+    # without giving up the ordinary balance query.
+    r"\b(portfolio|positions?|holdings?|p&l|pnl|balance|account(?!\s*type)|cash|own(?:s|ed)?)\b",
+    re.I,
+)
 _RESEARCH = re.compile(r"\b(quote|price|trading at|worth|cost)\b", re.I)
+#: A concept question: an asking cue, then a topic the corpus covers.
+#:
+#: Topic terms end in `\w*` rather than `\b` on purpose. With a hard boundary, "fee" missed
+#: "fees", "dividend" missed "dividends", and "settle" missed "settlement" — so the agent
+#: refused four of its own corpus documents and told the user they were out of scope. The
+#: retriever already stems trailing plurals; the classifier has to be at least as forgiving,
+#: or a question never reaches the retriever that could have answered it.
 _EDUCATE = re.compile(
-    r"\b(what|how|why|when|explain|define|mean[s]?|difference)\b.*"
-    r"\b(order|settle|pdt|day trad|margin|fee|commission|spread|bid|ask|dividend"
-    r"|short|market hours)\b",
+    r"\b(what|how|why|when|who|which|explain|define|describe|tell|mean[s]?|difference)\b.*"
+    r"\b(order|settl|pdt|day trad|margin|buying power|fee|commission|spread|bid|ask"
+    r"|dividend|short|market hour|time in force|account type|risk)\w*",
     re.I | re.S,
 )
 

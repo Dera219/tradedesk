@@ -13,6 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.auth.roles import AuthorizationError, requires
+from app.graph.classifier import KeywordClassifier
 from app.schemas.intents import Classification, Intent
 from app.schemas.orders import OrderRequest, OrderType, PendingOrder, Side
 
@@ -125,3 +126,48 @@ class TestAuthorization:
     async def test_unknown_role_fails_closed(self) -> None:
         with pytest.raises(AuthorizationError):
             await self._place(role="superuser")
+
+
+class TestClassifierReachesTheWholeCorpus:
+    """Every corpus topic must be reachable by an ordinary phrasing.
+
+    A question the classifier sends to out_of_scope never reaches the retriever, so a keyword
+    gap makes the agent refuse a document it actually has. These broke once: "fee" did not
+    match "fees", "dividend" did not match "dividends", "settle" did not match "settlement".
+    """
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "how does settlement work",
+            "what are the fees",
+            "how do dividends work",
+            "tell me about short selling",
+            "explain time in force",
+            "what are the risks",
+            "what account types are there",
+            "what is the pattern day trader rule?",
+            "explain margin",
+            "what's a limit order",
+            "what is the bid ask spread",
+            "when are market hours",
+        ],
+    )
+    def test_corpus_topic_routes_to_educate(self, message: str) -> None:
+        assert KeywordClassifier().classify(message).intent is Intent.EDUCATE
+
+    @pytest.mark.parametrize(
+        ("message", "expected"),
+        [
+            # Broadening educate must not have weakened the checks that run before it.
+            ("should I buy NVDA?", Intent.OUT_OF_SCOPE),
+            ("is TSLA a good buy right now?", Intent.OUT_OF_SCOPE),
+            ("what stock will make me rich?", Intent.OUT_OF_SCOPE),
+            ("buy 10 AAPL", Intent.TRADE),
+            ("sell 5 MSFT", Intent.TRADE),
+            ("show me my positions", Intent.PORTFOLIO),
+            ("how much is in my account", Intent.PORTFOLIO),
+        ],
+    )
+    def test_ordering_still_holds(self, message: str, expected: Intent) -> None:
+        assert KeywordClassifier().classify(message).intent is expected
