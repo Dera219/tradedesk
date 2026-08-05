@@ -260,6 +260,11 @@ class GraphAgent:
     async def handle(self, state: ConversationState, message: str) -> ConversationState:
         state.user_message = message
         state.citations = []
+        # Clear the previous turn's classification too. On a confirmation turn the entry router
+        # skips the classifier entirely, so a stale value here would report an intent that was
+        # never computed — the API surfaces this field, and state that misreports what happened
+        # is worse than state that says nothing.
+        state.classification = None
         state.record("user", message)
 
         result = await self._graph.ainvoke(state)

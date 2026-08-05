@@ -156,12 +156,14 @@ class TestGateHoldsThroughTheGraph:
         'yes' classified on its own would route somewhere arbitrary and leave the order alive."""
         agent, broker, state = make_graph_agent(retriever)
         state = await agent.handle(state, "buy 10 AAPL")
-        classification_before = state.classification
+        assert state.classification is not None  # the trade turn DID classify
 
         state = await agent.handle(state, "yes")
 
-        # The confirmation turn never ran the classifier, so classification is unchanged.
-        assert state.classification == classification_before
+        # The confirmation turn never ran the classifier, so there is no classification for it.
+        # (Asserting the previous turn's value merely persisted would pin stale state as if it
+        # were the guarantee; the guarantee is that the classifier was skipped.)
+        assert state.classification is None
         assert len(await broker.get_positions()) == 1
 
 
@@ -262,3 +264,4 @@ class TestBothImplementationsAgree:
         graph_positions = [(p.symbol, p.quantity) for p in await graph_broker.get_positions()]
         hand_positions = [(p.symbol, p.quantity) for p in await hand_broker.get_positions()]
         assert graph_positions == hand_positions
+
