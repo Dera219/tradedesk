@@ -152,7 +152,7 @@ python scripts/demo.py
 
 **Parts 0–5 work, plus the eval suite and both retrievers.** `python scripts/demo.py` runs the
 full conversation through the compiled LangGraph, fully offline — mock broker, lexical retriever,
-keyword classifier. No API key, no network. 235 tests, ruff clean, mypy strict clean.
+keyword classifier. No API key, no network. 254 tests, ruff clean, mypy strict clean.
 
 That offline property is deliberate. Venue wifi is a real risk, and every stand-in sits behind
 the same interface as its real counterpart (`MockBroker`/Alpaca, `LexicalRetriever`/Chroma,
@@ -208,7 +208,7 @@ leaving the order alive in state for a later turn to resurrect.
   `TRADEDESK_RETRIEVER=chroma`. The refusal threshold survives the swap: scores are cosine
   similarity in [0, 1], and out-of-domain queries land near 0 — verified with real embeddings
   ("day trading with a small account" → PDT doc at 0.65; a recipe question → 0.06)
-- 235 tests (unit + API integration + evals), ruff + mypy strict clean
+- 254 tests (unit + API integration + evals), ruff + mypy strict clean
 
 ### Still to build
 
