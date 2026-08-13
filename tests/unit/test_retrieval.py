@@ -201,3 +201,37 @@ class TestOrderExtraction:
         """OrderRequest caps quantity at 10,000. A rejected schema must produce None, not a
         half-built order."""
         assert extract_order("buy 999999 AAPL", ALLOWLIST) is None
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "buy AAPL at a limit of 50",  # the number is a PRICE, not a share count
+            "buy AAPL at $50",
+            "buy AAPL limit 50",
+            "buy AAPL at limit price 50.25",
+        ],
+    )
+    def test_a_price_is_never_read_as_a_quantity(self, message: str) -> None:
+        """'buy AAPL at a limit of 50' names a price and no quantity. Extracting BUY 50 @ $50
+        from it invents a 50-share order the user never placed — the contract is None, so the
+        graph asks."""
+        assert extract_order(message, ALLOWLIST) is None
+
+    @pytest.mark.parametrize(
+        ("message", "quantity", "limit_price"),
+        [
+            ("buy 10 AAPL at limit 50", "10", "50"),
+            ("buy 10 AAPL at a limit of 50", "10", "50"),
+            ("sell 5 MSFT at $420.50", "5", "420.50"),
+            ("buy 7 shares of NVDA limit price 180", "7", "180"),
+        ],
+    )
+    def test_quantity_and_limit_both_present_parse_to_the_right_fields(
+        self, message: str, quantity: str, limit_price: str
+    ) -> None:
+        """Stripping price phrases before quantity matching must not eat a real share count."""
+        order = extract_order(message, ALLOWLIST)
+        assert order is not None
+        assert str(order.quantity) == quantity
+        assert order.order_type.value == "limit"
+        assert str(order.limit_price) == limit_price

@@ -134,6 +134,37 @@ class TestTheGateAcrossRequests:
         assert "no open positions" in say(client, b, "positions")["reply"].lower()
 
 
+class TestSessionBound:
+    """The session endpoint is unauthenticated; without a cap, `while true; curl` is a
+    memory-DoS. The cap must hold over HTTP, evictions must free the per-session agent, and an
+    evicted session must get the same explicit 404 as any unknown one."""
+
+    def test_session_creation_is_bounded_and_evicts_oldest_first(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TRADEDESK_MAX_SESSIONS", "2")
+        from app.main import services
+
+        with TestClient(app) as client:
+            first = start(client)
+            second = start(client)
+            third = start(client)
+
+            r = client.post("/api/chat", json={"session_id": first, "message": "hi"})
+            assert r.status_code == 404, "an evicted session was silently kept or recreated"
+            assert say(client, second, "what is a spread")["reply"]
+            assert say(client, third, "what is a spread")["reply"]
+
+            assert len(services["agents"]) == 2, "eviction leaked the session's graph agent"
+
+    def test_a_malformed_cap_fails_at_startup_not_silently(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TRADEDESK_MAX_SESSIONS", "lots")
+        with pytest.raises(ValueError, match="TRADEDESK_MAX_SESSIONS"), TestClient(app):
+            pass
+
+
 class TestComplianceOverHttp:
     def test_compliance_cannot_trade(self, client: TestClient) -> None:
         sid = start(client, role="compliance")

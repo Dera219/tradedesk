@@ -16,7 +16,12 @@ import httpx
 import pytest
 
 from app.brokerage.alpaca import AlpacaBroker, AlpacaConfigError
-from app.brokerage.base import BrokerageError, InsufficientFunds, SymbolNotTradable
+from app.brokerage.base import (
+    BrokerageError,
+    BrokerageUnavailable,
+    InsufficientFunds,
+    SymbolNotTradable,
+)
 from app.schemas.orders import OrderRequest, OrderType, Side
 
 FILLED_ORDER = {
@@ -175,8 +180,60 @@ async def test_network_failure_becomes_brokerage_error() -> None:
         raise httpx.ConnectError("dns failure")
 
     broker = broker_with(handler)
-    with pytest.raises(BrokerageError, match="Could not reach Alpaca"):
+    with pytest.raises(BrokerageUnavailable, match="Could not reach Alpaca"):
         await broker.get_account()
+
+
+async def test_submit_order_timeout_becomes_brokerage_unavailable() -> None:
+    """The write path must wrap transport errors exactly like the read path.
+
+    A raw httpx.TimeoutException escaping submit_order was uncaught by handle_confirmation —
+    a 500 instead of a reply, the session save skipped, and the pending order left alive past
+    its one-turn window.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.TimeoutException("request timed out")
+
+    broker = broker_with(handler)
+    with pytest.raises(BrokerageUnavailable, match="may or may not have been received"):
+        await broker.submit_order(an_order(), client_order_id="coid-123")
+
+
+async def test_cancel_order_timeout_becomes_brokerage_unavailable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.TimeoutException("request timed out")
+
+    broker = broker_with(handler)
+    with pytest.raises(BrokerageUnavailable, match="Could not reach Alpaca"):
+        await broker.cancel_order("order-1")
+
+
+@pytest.mark.parametrize(
+    "symbol",
+    [
+        "../../v2/account",  # httpx normalizes `..`, so this would reach the account endpoint
+        "AAPL/../MSFT",
+        "AAPL?feed=sip",
+        "aapl%2f",
+        "TOOLONG",
+        "",
+        "BRK.B",  # dotted share classes are real but outside this app's symbol shape
+    ],
+)
+async def test_get_quote_rejects_anything_that_is_not_a_ticker(symbol: str) -> None:
+    """The symbol lands in a URL path, so the broker validates it itself — defense at this
+    layer, not just at the MCP/chat edges, which cannot all be trusted to pre-validate."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(200, json={})
+
+    broker = broker_with(handler)
+    with pytest.raises(BrokerageError, match="not a valid ticker"):
+        await broker.get_quote(symbol)
+    assert calls == [], "an invalid symbol still produced an HTTP request"
 
 
 def test_trading_base_is_hardcoded_to_paper() -> None:

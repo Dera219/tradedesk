@@ -7,7 +7,7 @@
 Method note: every **Test Performed** below names a real, runnable check in this repository —
 an adversarial eval scenario (`evals/scenarios.py`, run via `python scripts/run_evals.py`) or a
 unit test. Nothing in this audit is asserted from intention; it is asserted from a test that
-fails if the property breaks. Current totals: **254 tests, 18/18 adversarial scenarios passing,
+fails if the property breaks. Current totals: **293 tests, 18/18 adversarial scenarios passing,
 0 unauthorized executions.**
 
 ---

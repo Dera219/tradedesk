@@ -73,6 +73,10 @@ _EDUCATE = re.compile(
 )
 
 _SYMBOL = re.compile(r"\b([A-Z]{1,5})\b")
+#: Matches the first number in the message — which is why `extract_order` strips price phrases
+#: (everything `_LIMIT` matches) BEFORE searching. Without that, "buy AAPL at a limit of 50"
+#: read the limit price as a quantity and proposed BUY 50 @ $50 — an order nobody placed,
+#: contradicting the "return None rather than guessing" contract.
 _QUANTITY = re.compile(r"\b(\d+(?:\.\d+)?)\s*(?:shares?|units?)?\b", re.I)
 #: Limit price. Has to tolerate the filler words people actually type between "limit" and the
 #: number — "at a limit of 180.50", "limit price 180.50", "limit 180.50" — plus the bare
@@ -234,7 +238,10 @@ def extract_order(message: str, known: frozenset[str] | None = None) -> OrderReq
 
     side = Side.SELL if re.search(r"\b(sell|short)\b", message, re.I) else Side.BUY
 
-    quantity_match = _QUANTITY.search(message)
+    # The quantity must not be borrowed from a price phrase: strip everything `_LIMIT` matches
+    # ("at a limit of 50", "limit 50", "at $50") before looking for a share count. If no number
+    # survives, the quantity is genuinely missing and the graph should ask — see `_QUANTITY`.
+    quantity_match = _QUANTITY.search(_LIMIT.sub(" ", message))
     if quantity_match is None:
         return None
 

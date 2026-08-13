@@ -20,6 +20,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
@@ -29,7 +30,12 @@ from app.graph.classifier import KeywordClassifier
 from app.rag.chunking import chunk_corpus
 from app.rag.retrieval import LexicalRetriever
 from app.schemas.intents import Role
-from app.session import SessionStore
+from app.session import DEFAULT_MAX_SESSIONS, SessionStore
+
+# Make "copy .env.example to .env" actually work: load .env at import time, before any of the
+# _build_* switches read the environment. load_dotenv never overrides variables already exported
+# in the shell — an explicit `TRADEDESK_BROKER=alpaca uvicorn ...` always wins over the file.
+load_dotenv()
 
 CORPUS = Path(__file__).resolve().parent.parent / "corpus"
 INDEX_HTML = (Path(__file__).resolve().parent / "static" / "index.html").read_text(encoding="utf-8")
@@ -109,14 +115,37 @@ def _build_retriever() -> object:
     return LexicalRetriever(chunks)
 
 
+def _session_cap() -> int:
+    """TRADEDESK_MAX_SESSIONS, or the default.
+
+    `POST /api/session` is unauthenticated and each session pins a compiled graph, so the store
+    must be bounded — see SessionStore. A malformed value fails loudly at startup rather than
+    silently falling back: a cap someone tried to set and didn't get is worse than a crash.
+    """
+    raw = os.getenv("TRADEDESK_MAX_SESSIONS", "").strip()
+    if not raw:
+        return DEFAULT_MAX_SESSIONS
+    try:
+        cap = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"TRADEDESK_MAX_SESSIONS must be an integer, got {raw!r}") from exc
+    if cap < 1:
+        raise ValueError(f"TRADEDESK_MAX_SESSIONS must be >= 1, got {cap}")
+    return cap
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Build the corpus index once at startup, not per request — chunking and index setup are not
     # free, and a chat endpoint that re-indexed on every message would be needlessly slow.
     services["classifier"] = _build_classifier()
     services["retriever"] = _build_retriever()
-    services["sessions"] = SessionStore()
     services["agents"] = {}  # session_id -> GraphAgent (each owns its broker)
+    # Evicting a session must free its agent too, or the cap bounds the wrong dict.
+    services["sessions"] = SessionStore(
+        max_sessions=_session_cap(),
+        on_evict=lambda session_id: services["agents"].pop(session_id, None),
+    )
     services["alpaca"] = _build_alpaca()
     yield
     if services["alpaca"] is not None:

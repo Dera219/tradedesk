@@ -9,7 +9,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from app.auth.roles import AuthorizationError
-from app.brokerage.base import BrokerageClient, BrokerageError
+from app.brokerage.base import BrokerageClient, BrokerageError, BrokerageUnavailable
 from app.graph.confirmation import is_confirmation, is_rejection
 from app.graph.state import ConversationState
 from app.graph.tools import (
@@ -152,7 +152,15 @@ async def handle_trade(
         state.pending_order = None
         return state
 
-    quote = await get_quote(broker, request.symbol, role=state.role)
+    try:
+        quote = await get_quote(broker, request.symbol, role=state.role)
+    except BrokerageError as exc:
+        # The same conversational treatment every other broker failure in this handler gets.
+        # Without this, a transient quote failure AFTER successful validation was the one
+        # broker error on the propose path that surfaced as a 500 instead of a reply.
+        state.reply = str(exc)
+        state.pending_order = None
+        return state
     reference = request.limit_price if request.limit_price is not None else quote.ask
     estimated = request.quantity * reference
 
@@ -200,6 +208,21 @@ async def handle_confirmation(
         )
     except AuthorizationError as exc:
         state.reply = str(exc)
+        return state
+    except BrokerageUnavailable as exc:
+        # A transport failure is not a rejection: the broker may or may not have received the
+        # order, and pretending it definitely failed would be a lie either way. Re-arm the SAME
+        # pending order — its client_order_id was minted at proposal time, so a retried "yes"
+        # is idempotent at the venue and cannot double-buy. This restarts the one-turn window
+        # with the user explicitly re-asked; anything but "yes" on the next turn still cancels.
+        state.pending_order = pending
+        state.reply = (
+            f"I couldn't reach the brokerage, so I don't know whether that order went "
+            f"through: {exc}\n\n"
+            f"Still pending: {pending.request.summarize()}\n"
+            f"Reply 'yes' to retry — the retry reuses the same order id, so it can never "
+            f"execute twice. Anything else cancels."
+        )
         return state
     except BrokerageError as exc:
         state.reply = f"The order didn't go through: {exc}"

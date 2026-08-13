@@ -4,7 +4,10 @@ Two implementations behind one protocol, mirroring the `BrokerageClient` pattern
 run with no network and no API key, and the real thing should be a one-line swap.
 
 - `LexicalRetriever` — BM25 over the chunk text. Zero dependencies, deterministic, offline.
-- `ChromaRetriever` — embeddings. See the note at the bottom.
+- `ChromaRetriever` (`app.rag.vector`) — embeddings, opt-in via TRADEDESK_RETRIEVER=chroma.
+  BM25 matches *words*, embeddings match *meaning*: a user asking "how much money do I need to
+  day trade?" never says "equity" or "$25,000", so lexical search can miss the PDT chunk
+  entirely while embeddings find it.
 
 ## The honesty threshold
 
@@ -161,7 +164,7 @@ def _stem(token: str) -> str:
 
     This does NOT solve the general problem — "trading" still won't match "trade". That's not a
     bug to patch with more suffix rules; it's the ceiling of lexical retrieval, and the reason
-    to move to embeddings. See `build_chroma_retriever`.
+    to move to embeddings. See `app.rag.vector.ChromaRetriever`.
     """
     if len(token) > 3 and token.endswith("s") and not token.endswith(("ss", "us", "is")):
         return token[:-1]
@@ -268,22 +271,3 @@ class LexicalRetriever:
             Retrieved(chunk=self.chunks[index], score=min(score / ceiling, 1.0))
             for index, score in ranked
         ]
-
-
-def build_chroma_retriever(chunks: list[Chunk], persist_path: str) -> Retriever:  # pragma: no cover
-    """Embedding-based retrieval via Chroma.
-
-    Not wired up yet — Part 1's target. Chroma's default embedding function
-    (`all-MiniLM-L6-v2` via onnxruntime) runs locally and needs no API key, which keeps the
-    "demo works offline" property that `LexicalRetriever` gives us today.
-
-    Worth knowing before swapping: BM25 matches *words*, embeddings match *meaning*. A user
-    asking "how much money do I need to day trade?" never says "equity" or "$25,000", so lexical
-    search can miss the PDT chunk entirely while embeddings find it. That's the reason to make
-    this swap — and it's a better demo beat than "we used a vector DB because vector DBs are what
-    you use."
-    """
-    raise NotImplementedError(
-        "ChromaRetriever is Part 1's target. LexicalRetriever works offline in the meantime; "
-        "see this docstring for why the swap matters."
-    )

@@ -21,8 +21,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from dotenv import load_dotenv  # noqa: E402
+
 from evals.harness import run_all  # noqa: E402
 from evals.scenarios import SCENARIOS  # noqa: E402
+
+# Same convention as app.main: .env is read for convenience (ANTHROPIC_API_KEY for the LLM run),
+# but variables already exported in the shell always win.
+load_dotenv()
 
 REPORT = Path(__file__).resolve().parent.parent / "reports" / "evals.json"
 

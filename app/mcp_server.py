@@ -35,10 +35,11 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
+from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 from app.auth.roles import AuthorizationError
-from app.brokerage.base import BrokerageClient, BrokerageError
+from app.brokerage.base import BrokerageClient, BrokerageError, BrokerageUnavailable
 from app.graph.tools import (
     get_account as _account,
 )
@@ -59,6 +60,10 @@ from app.rag.retrieval import LexicalRetriever
 from app.schemas.intents import Role
 from app.schemas.orders import OrderRequest, OrderType, Side, TimeInForce
 
+# Same convention as app.main: .env is read before the TRADEDESK_* / APCA_* switches, and
+# variables already exported in the shell always win over the file.
+load_dotenv()
+
 ALLOWLIST = frozenset({"AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "TSLA", "SPY", "QQQ"})
 MAX_QUANTITY = Decimal(100)
 PROPOSAL_TTL_SECONDS = 120.0
@@ -68,6 +73,10 @@ PROPOSAL_TTL_SECONDS = 120.0
 class Proposal:
     request: OrderRequest
     token: str
+    #: Sent to the broker as client_order_id. Minted at PROPOSAL time (README safety claim #5),
+    #: never at confirm time — so if a confirm times out in transport, the retry reuses the same
+    #: id and the venue's idempotency makes a double-execution impossible.
+    client_order_id: str
     created_at: float
 
     def expired(self, *, now: float | None = None) -> bool:
@@ -174,7 +183,10 @@ class TradeDeskService:
 
         # A new proposal always replaces the old one — one live order, ever.
         self.pending = Proposal(
-            request=request, token=str(uuid.uuid4()), created_at=time.monotonic()
+            request=request,
+            token=str(uuid.uuid4()),
+            client_order_id=str(uuid.uuid4()),
+            created_at=time.monotonic(),
         )
         return (
             f"PROPOSED (not executed): {request.summarize()}\n"
@@ -185,8 +197,9 @@ class TradeDeskService:
 
     async def confirm(self, token: str) -> str:
         proposal = self.pending
-        # Fail closed, and burn the proposal on every path out of here: a token that failed
-        # once must not be retryable into an execution later.
+        # Fail closed, and burn the proposal on every failed check: a token that failed once
+        # must not be retryable into an execution later. (The single exception, below, is a
+        # transport failure — no answer from the venue is not a failed check.)
         if proposal is None:
             return "There is no pending proposal. Nothing was executed. Propose an order first."
         if proposal.expired():
@@ -201,9 +214,24 @@ class TradeDeskService:
 
         self.pending = None  # single-use, cleared BEFORE the broker call, never after
         try:
-            result = await _place(self.broker, proposal.request, str(uuid.uuid4()), role=self.role)
+            result = await _place(
+                self.broker, proposal.request, proposal.client_order_id, role=self.role
+            )
         except AuthorizationError as exc:
             return str(exc)
+        except BrokerageUnavailable as exc:
+            # A transport failure is the ONE outcome that does not burn the proposal: it is the
+            # absence of an answer, not a rejection — the venue may or may not have received the
+            # order. Restoring the proposal lets the same token retry with the same
+            # client_order_id, which the broker's idempotency makes unable to double-execute.
+            # The TTL still bounds how long that window stays open.
+            self.pending = proposal
+            return (
+                f"Could not reach the broker: {exc} The order may or may not have been "
+                f"received, so the proposal is still pending. Call confirm_order again with "
+                f"the same token to retry safely — it reuses the same client order id and "
+                f"cannot execute twice — or cancel_proposal to discard it."
+            )
         except BrokerageError as exc:
             return f"The broker rejected the order: {exc}"
 

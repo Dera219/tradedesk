@@ -311,8 +311,11 @@ checks, same account validation) and returns a **single-use token with a 120-sec
 - A failed confirm — wrong token, expired, or cancelled — **burns the proposal**. No retrying
   into a fill.
 - **One live proposal at a time**, mirroring `ConversationState.pending_order`.
-- The token is cleared **before** the broker call, so an exception mid-submit cannot leave a
-  reusable token behind.
+- The token is cleared **before** the broker call, so a rejection mid-submit cannot leave a
+  reusable token behind. The one deliberate exception is a *transport* failure — no answer
+  from the venue is not a rejection, so the proposal is restored and the same token retries
+  with the same proposal-time `client_order_id`, which idempotency makes unable to
+  double-execute.
 
 There is deliberately **no single tool that goes from intent to fill**.
 
@@ -348,7 +351,7 @@ cost of a false negative is retyping, the cost of a false positive is an unwante
 
 **How do you know it works?**
 18 adversarial conversations asserted at the broker boundary by a spy: 0 unauthorized executions,
-including against the real Claude classifier. 254 tests, ruff and mypy strict clean.
+including against the real Claude classifier. 293 tests, ruff and mypy strict clean.
 
 **Why heading-based chunking?**
 Fixed-size chunks split the PDT rule across a boundary, so retrieval returned half a rule and the
@@ -362,7 +365,9 @@ refusal threshold keeps its meaning across the swap.
 
 **Why MCP over a plain HTTP tool?**
 MCP gives any client the tools but takes away the conversation the gate lived in, so I rebuilt it
-as propose/confirm with a single-use 120-second token; a failed confirm burns the proposal.
+as propose/confirm with a single-use 120-second token; a failed confirm burns the proposal
+(only an unanswered one — a transport failure — survives, retryable with the same token and
+the same idempotent order id).
 
 **What if the LLM classifier is wrong?**
 It fails closed to `out_of_scope`. And it can only ever choose a route — every consequence

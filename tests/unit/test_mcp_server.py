@@ -102,6 +102,57 @@ async def test_cancel_proposal(service: TradeDeskService, spy: SpyBroker) -> Non
     assert spy.executed == []
 
 
+async def test_client_order_id_is_minted_at_proposal_time(
+    service: TradeDeskService, spy: SpyBroker
+) -> None:
+    """README safety claim #5: the idempotency id exists from the moment the order is proposed.
+    Minting it at confirm time instead would make a timed-out confirm unretryable — the retry
+    would carry a fresh id, and a hidden fill could double-execute."""
+    token = _token(await service.propose("AAPL", "buy", "10"))
+    assert service.pending is not None
+    proposal_time_id = service.pending.client_order_id
+
+    await service.confirm(token)
+    assert [coid for _, coid in spy.executed] == [proposal_time_id]
+
+
+async def test_transport_failure_keeps_the_proposal_retryable(
+    service: TradeDeskService, spy: SpyBroker
+) -> None:
+    """No answer from the venue is not a failed check: the proposal must survive, and the SAME
+    token must retry with the SAME client_order_id — the pair that makes a retry unable to
+    double-execute. Every other confirm failure still burns the proposal."""
+    from app.brokerage.base import BrokerageUnavailable
+
+    token = _token(await service.propose("AAPL", "buy", "10"))
+    assert service.pending is not None
+    proposal_time_id = service.pending.client_order_id
+
+    real_submit = spy.submit_order
+    fail_next = {"value": True}
+
+    async def submit(request, client_order_id):  # type: ignore[no-untyped-def]
+        if fail_next["value"]:
+            fail_next["value"] = False
+            raise BrokerageUnavailable("Could not reach Alpaca: request timed out")
+        return await real_submit(request, client_order_id)
+
+    spy.submit_order = submit  # type: ignore[method-assign]
+
+    reply = await service.confirm(token)
+    assert "could not reach" in reply.lower()
+    assert "same token" in reply.lower()
+    assert spy.executed == []
+    assert service.pending is not None, "a transport failure burned the proposal"
+    assert service.pending.token == token
+    assert service.pending.client_order_id == proposal_time_id
+
+    retry = await service.confirm(token)
+    assert "Executed" in retry
+    assert [coid for _, coid in spy.executed] == [proposal_time_id]
+    assert service.pending is None, "a successful confirm must still burn the proposal"
+
+
 async def test_compliance_role_cannot_propose(spy: SpyBroker, retriever: LexicalRetriever) -> None:
     service = TradeDeskService(spy, retriever, role="compliance")
     await service.propose("AAPL", "buy", "10")

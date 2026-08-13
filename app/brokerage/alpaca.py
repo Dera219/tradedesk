@@ -27,6 +27,7 @@ never touch account balances.
 from __future__ import annotations
 
 import os
+import re
 from decimal import Decimal
 from typing import Any
 
@@ -36,6 +37,7 @@ from app.brokerage.base import (
     Account,
     BrokerageClient,
     BrokerageError,
+    BrokerageUnavailable,
     InsufficientFunds,
     OrderResult,
     Position,
@@ -50,6 +52,12 @@ _TRADING_BASE = "https://paper-api.alpaca.markets"
 _DATA_BASE = "https://data.alpaca.markets"
 
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+
+#: Same shape as OrderRequest.symbol. Enforced here as well as in the schema because `get_quote`
+#: interpolates the symbol into a URL path, and this class cannot assume every caller validated:
+#: httpx normalizes `..` segments, so an unvalidated "../../v2/account" would silently become a
+#: request to a different authenticated endpoint.
+_VALID_SYMBOL = re.compile(r"^[A-Z]{1,5}$")
 
 
 class AlpacaConfigError(BrokerageError):
@@ -128,6 +136,11 @@ class AlpacaBroker(BrokerageClient):
 
     async def get_quote(self, symbol: str) -> Quote:
         symbol = symbol.upper()
+        if _VALID_SYMBOL.fullmatch(symbol) is None:
+            # Defense at the broker layer, not just the edges. See _VALID_SYMBOL for why.
+            raise BrokerageError(
+                f"{symbol!r} is not a valid ticker symbol (expected 1-5 letters)."
+            )
         quote = await self._get_json(
             self._data, f"/v2/stocks/{symbol}/quotes/latest", params={"feed": "iex"}
         )
@@ -159,7 +172,18 @@ class AlpacaBroker(BrokerageClient):
         if request.order_type is OrderType.LIMIT and request.limit_price is not None:
             body["limit_price"] = str(request.limit_price)
 
-        response = await self._trading.post("/v2/orders", json=body)
+        try:
+            response = await self._trading.post("/v2/orders", json=body)
+        except httpx.HTTPError as exc:  # DNS failure, timeout, connection reset
+            # The one transport failure that must not escape as a raw httpx exception: an
+            # uncaught error here skips the session save upstream and leaves the pending order
+            # alive past its one-turn window. BrokerageUnavailable tells the caller the truth —
+            # the order may or may not have been received — and the stable client_order_id
+            # makes a retry safe.
+            raise BrokerageUnavailable(
+                f"Could not reach Alpaca to submit the order: {exc}. It may or may not have "
+                f"been received; retrying with the same client_order_id cannot double-execute."
+            ) from exc
 
         if response.status_code == 422 and "client_order_id" in response.text:
             # The idempotency guarantee: a duplicate id means the first attempt succeeded and
@@ -172,7 +196,10 @@ class AlpacaBroker(BrokerageClient):
         return self._to_order_result(response.json())
 
     async def cancel_order(self, order_id: str) -> None:
-        response = await self._trading.delete(f"/v2/orders/{order_id}")
+        try:
+            response = await self._trading.delete(f"/v2/orders/{order_id}")
+        except httpx.HTTPError as exc:  # DNS failure, timeout, connection reset
+            raise BrokerageUnavailable(f"Could not reach Alpaca: {exc}") from exc
         if response.status_code == 404:
             raise BrokerageError(f"Order {order_id} was not found on the paper account.")
         if response.status_code not in (204, 200):
@@ -205,7 +232,7 @@ class AlpacaBroker(BrokerageClient):
         try:
             response = await client.get(path, params=params)
         except httpx.HTTPError as exc:  # DNS failure, timeout, connection reset
-            raise BrokerageError(f"Could not reach Alpaca: {exc}") from exc
+            raise BrokerageUnavailable(f"Could not reach Alpaca: {exc}") from exc
         if response.is_error:
             raise self._map_error(response, symbol=path.rsplit("/", 2)[-2].upper())
         return response.json()

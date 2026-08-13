@@ -65,6 +65,16 @@ class BrokerageError(Exception):
     """
 
 
+class BrokerageUnavailable(BrokerageError):
+    """The venue could not be reached — timeout, DNS failure, connection reset.
+
+    Distinct from every other BrokerageError because it is the *absence* of an answer rather
+    than a rejection: the request may or may not have been received. Callers that submitted an
+    order may safely retry with the same client_order_id (idempotency makes the retry unable to
+    double-execute); callers that were only reading can simply try again.
+    """
+
+
 class InsufficientFunds(BrokerageError): ...
 
 

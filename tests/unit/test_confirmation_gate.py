@@ -202,6 +202,28 @@ class TestServerSideValidation:
         assert state.pending_order is None
         assert "hold" in state.reply.lower()
 
+    async def test_quote_failure_after_validation_replies_instead_of_raising(self) -> None:
+        """The echo needs one more quote AFTER validation passes. A transient broker failure
+        there must get the same conversational treatment as every other broker error — it was
+        the one failure on the propose path that escaped as an exception (an HTTP 500)."""
+        from app.brokerage.base import BrokerageError
+
+        broker = MockBroker(cash=Decimal(100_000))
+        real_get_quote = broker.get_quote
+        calls = {"count": 0}
+
+        async def get_quote(symbol: str):  # type: ignore[no-untyped-def]
+            calls["count"] += 1
+            if calls["count"] > 1:  # validation's quote succeeds; the echo's quote fails
+                raise BrokerageError("Could not reach Alpaca: request timed out")
+            return await real_get_quote(symbol)
+
+        broker.get_quote = get_quote  # type: ignore[method-assign]
+        state = await propose(ConversationState(), broker, an_order())
+
+        assert state.pending_order is None, "a failed proposal left an order pending"
+        assert "could not reach" in state.reply.lower()
+
 
 class TestIdempotency:
     async def test_retrying_the_same_client_order_id_does_not_double_buy(self) -> None:
@@ -214,6 +236,93 @@ class TestIdempotency:
         assert first.order_id == second.order_id
         positions = await broker.get_positions()
         assert positions[0].quantity == Decimal(10), "the retry bought a second time"
+
+
+class TestTransportFailureOnConfirm:
+    """A timeout mid-submission is the absence of an answer, not a rejection. The handler must
+    reply conversationally (never a 500), and the safe retry story must actually work: the
+    re-armed order reuses its proposal-time client_order_id, so a retried 'yes' is idempotent."""
+
+    @staticmethod
+    def _flaky(broker: MockBroker, failures: int) -> MockBroker:
+        """Make the broker's next `failures` submissions fail in transport, then recover."""
+        from app.brokerage.base import BrokerageUnavailable
+
+        real_submit = broker.submit_order
+        remaining = {"count": failures}
+
+        async def submit(request: OrderRequest, client_order_id: str):  # type: ignore[no-untyped-def]
+            if remaining["count"] > 0:
+                remaining["count"] -= 1
+                raise BrokerageUnavailable("Could not reach Alpaca: request timed out")
+            return await real_submit(request, client_order_id)
+
+        broker.submit_order = submit  # type: ignore[method-assign]
+        return broker
+
+    async def test_transport_failure_re_arms_the_same_order_and_asks_again(self) -> None:
+        broker = self._flaky(MockBroker(cash=Decimal(100_000)), failures=1)
+        state = await propose(ConversationState(), broker, an_order())
+        original = state.pending_order
+        assert original is not None
+
+        state.user_message = "yes"
+        state = await handle_confirmation(state, broker=broker)
+
+        assert await broker.get_positions() == [], "a failed submission reported a fill"
+        assert state.pending_order is not None, "the order was lost instead of re-armed"
+        assert state.pending_order.client_order_id == original.client_order_id, (
+            "the retry minted a new client_order_id — a hidden fill could now double-buy"
+        )
+        assert "couldn't reach" in state.reply.lower()
+        assert "yes" in state.reply.lower(), "the reply must explicitly re-ask"
+
+    async def test_retried_yes_executes_once_with_the_original_id(self) -> None:
+        broker = self._flaky(MockBroker(cash=Decimal(100_000)), failures=1)
+        state = await propose(ConversationState(), broker, an_order())
+        original_id = state.pending_order.client_order_id  # type: ignore[union-attr]
+
+        state.user_message = "yes"
+        state = await handle_confirmation(state, broker=broker)  # transport failure, re-armed
+        state.user_message = "yes"
+        state = await handle_confirmation(state, broker=broker)  # retry succeeds
+
+        positions = await broker.get_positions()
+        assert len(positions) == 1 and positions[0].quantity == Decimal(10)
+        assert state.pending_order is None
+        assert original_id in broker._submitted  # noqa: SLF001 — the id reached the venue
+
+    async def test_anything_but_yes_still_cancels_a_re_armed_order(self) -> None:
+        """The re-arm restarts the one-turn window; it does not weaken the gate."""
+        broker = self._flaky(MockBroker(cash=Decimal(100_000)), failures=1)
+        state = await propose(ConversationState(), broker, an_order())
+
+        state.user_message = "yes"
+        state = await handle_confirmation(state, broker=broker)  # transport failure, re-armed
+        state.user_message = "actually no"
+        state = await handle_confirmation(state, broker=broker)
+
+        assert state.pending_order is None
+        assert await broker.get_positions() == []
+
+    async def test_a_rejection_is_not_re_armed(self) -> None:
+        """Only the absence of an answer re-arms. A real rejection (insufficient funds, bad
+        symbol) is an answer, and re-asking would invite confirming a known-bad order."""
+        from app.brokerage.base import BrokerageError
+
+        broker = MockBroker(cash=Decimal(100_000))
+
+        async def submit(request: OrderRequest, client_order_id: str):  # type: ignore[no-untyped-def]
+            raise BrokerageError("account is restricted")
+
+        broker.submit_order = submit  # type: ignore[method-assign]
+        state = await propose(ConversationState(), broker, an_order())
+
+        state.user_message = "yes"
+        state = await handle_confirmation(state, broker=broker)
+
+        assert state.pending_order is None
+        assert "didn't go through" in state.reply
 
 
 class TestAuthorizationInCode:

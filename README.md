@@ -48,7 +48,7 @@ app/
 ├── auth/            # role decorators
 ├── main.py          # FastAPI: sessions in, replies out — no logic of its own
 └── mcp_server.py    # Part 5: the gate as a propose/confirm token handshake
-corpus/              # 14 self-authored brokerage policy + education docs
+corpus/              # 13 self-authored brokerage policy + education docs
 evals/               # 18 adversarial scenarios, asserted at the broker
 scripts/demo.py      # the DSN walkthrough (offline)
 scripts/run_evals.py # the adversarial scorecard
@@ -84,7 +84,7 @@ reused on every retry, so a timeout that hides a successful fill cannot double-b
 | Part | Implementation |
 |---|---|
 | 0 — core | Trace a message end-to-end; identify router splice points |
-| 1 — core | RAG over 14 self-authored docs; heading-based chunking with title prefixing; low-confidence retrieval returns an honest "not in my docs" |
+| 1 — core | RAG over 13 self-authored docs; heading-based chunking with title prefixing; low-confidence retrieval returns an honest "not in my docs" |
 | 2 — core | LangGraph: `classify_intent` → router → handlers; trades pass the confirmation gate against a mock broker |
 | 3 — ext | Swap mock → Alpaca behind `BrokerageClient`; env-var auth, error mapping, retries |
 | 4 — ext | Compliance persona: read-only, cross-account, cannot trade |
@@ -128,12 +128,19 @@ uvicorn app.main:app --reload      # then open http://localhost:8000
 A single-page chat UI backed by FastAPI. No API key needed — the whole stack (mock broker,
 lexical retriever, keyword classifier) runs offline, so the demo can't be broken by venue wifi.
 
-Two opt-in swaps, both env-var-gated so the offline default stays the default:
+Three opt-in swaps, all env-var-gated so the offline default stays the default:
 
 ```bash
 TRADEDESK_LLM_CLASSIFIER=1         # Claude-backed intent classifier (needs ANTHROPIC_API_KEY)
 TRADEDESK_BROKER=alpaca            # real Alpaca paper trading (needs APCA_API_KEY_ID + APCA_API_SECRET_KEY)
+TRADEDESK_RETRIEVER=chroma         # embedding retrieval (downloads model weights on first start)
 ```
+
+Switches can live in a `.env` file instead of the shell — `cp .env.example .env` and fill it in.
+The entrypoints load it at startup (python-dotenv), and shell-exported variables always win over
+the file. `.env.example` documents every variable the code reads, including
+`TRADEDESK_MAX_SESSIONS`, the cap on stored chat sessions (default 500, least-recently-used
+eviction — the session endpoint is unauthenticated, so the store is bounded by design).
 
 The Alpaca client (`app/brokerage/alpaca.py`) hard-codes the paper-trading host — there is no
 configuration that points it at the live API. Duplicate `client_order_id` submissions return the
@@ -152,7 +159,7 @@ python scripts/demo.py
 
 **Parts 0–5 work, plus the eval suite and both retrievers.** `python scripts/demo.py` runs the
 full conversation through the compiled LangGraph, fully offline — mock broker, lexical retriever,
-keyword classifier. No API key, no network. 254 tests, ruff clean, mypy strict clean.
+keyword classifier. No API key, no network. 293 tests, ruff clean, mypy strict clean.
 
 That offline property is deliberate. Venue wifi is a real risk, and every stand-in sits behind
 the same interface as its real counterpart (`MockBroker`/Alpaca, `LexicalRetriever`/Chroma,
@@ -184,7 +191,7 @@ leaving the order alive in state for a later turn to resurrect.
 - Parts 0–2: RAG pipeline, acting agent, confirmation gate, compiled LangGraph
 - **FastAPI app + chat UI** ([`app/main.py`](app/main.py)) — per-session state, the gate verified
   across separate HTTP requests, sessions isolated from each other
-- **Full corpus** — 14 self-authored docs (PDT rule, order types, settlement, margin, fees,
+- **Full corpus** — 13 self-authored docs (PDT rule, order types, settlement, margin, fees,
   market hours, spread, short selling, dividends, account types, risk, FAQ, time-in-force)
 - **LLM classifier** ([`app/graph/llm_classifier.py`](app/graph/llm_classifier.py)) — Claude
   structured output, fails closed to `out_of_scope`, opt-in via `TRADEDESK_LLM_CLASSIFIER=1`
@@ -200,15 +207,17 @@ leaving the order alive in state for a later turn to resurrect.
 - **Part 5: MCP server** ([`app/mcp_server.py`](app/mcp_server.py)) — TradeDesk's tools for
   any MCP client (`python -m app.mcp_server`). The confirmation gate survives the protocol as
   a two-tool handshake: `propose_order` returns a single-use token with a 120s TTL;
-  `confirm_order` executes only with that exact token, and any failed confirm burns the
-  proposal. `TRADEDESK_MCP_ROLE=compliance` starts it read-only; `TRADEDESK_BROKER=alpaca`
-  routes to the paper account
+  `confirm_order` executes only with that exact token, and any failed check burns the
+  proposal. The one exception is a transport failure mid-confirm — no answer is not a failed
+  check, so the proposal survives and the same token retries with the same proposal-time
+  `client_order_id`, which cannot double-execute. `TRADEDESK_MCP_ROLE=compliance` starts it
+  read-only; `TRADEDESK_BROKER=alpaca` routes to the paper account
 - **Chroma vector retriever** ([`app/rag/vector.py`](app/rag/vector.py)) — embedding
   retrieval (ONNX MiniLM via Chroma) behind the same `Retriever` protocol; opt-in via
   `TRADEDESK_RETRIEVER=chroma`. The refusal threshold survives the swap: scores are cosine
   similarity in [0, 1], and out-of-domain queries land near 0 — verified with real embeddings
   ("day trading with a small account" → PDT doc at 0.65; a recipe question → 0.06)
-- 254 tests (unit + API integration + evals), ruff + mypy strict clean
+- 293 tests (unit + API integration + evals), ruff + mypy strict clean
 
 ### Still to build
 

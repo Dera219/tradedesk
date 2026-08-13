@@ -18,6 +18,7 @@ from decimal import Decimal
 from app.brokerage.base import (
     Account,
     BrokerageClient,
+    BrokerageError,
     InsufficientFunds,
     MarketClosed,
     OrderResult,
@@ -179,5 +180,10 @@ class MockBroker(BrokerageClient):
         return _MARKET_OPEN <= current <= _MARKET_CLOSE
 
 
-class BrokerageOrderNotFound(Exception):
-    """Raised when cancelling something that isn't open."""
+class BrokerageOrderNotFound(BrokerageError):
+    """Raised when cancelling something that isn't open.
+
+    Subclasses BrokerageError so the mock matches the Alpaca client, which raises
+    BrokerageError for the same condition — handlers written against one broker must catch
+    the other's failures too, or the swap the interface promises quietly breaks them.
+    """

@@ -29,6 +29,12 @@ class ConversationState:
     It must never survive more than one turn. A pending order that lingers means a "yes" three
     turns later — answering some unrelated question — could execute a trade the user has
     forgotten proposing. Everything that isn't an explicit confirmation clears it.
+
+    One deliberate exception: if submitting a confirmed order fails in *transport*
+    (BrokerageUnavailable — the broker may or may not have received it), `handle_confirmation`
+    re-arms the same pending order and explicitly re-asks. That restarts the one-turn window
+    with the user fully informed rather than leaving a stale order lingering silently, and the
+    reused client_order_id makes the retried "yes" idempotent at the venue.
     """
 
     role: Role = "trader"
