@@ -348,7 +348,7 @@ cost of a false negative is retyping, the cost of a false positive is an unwante
 
 **How do you know it works?**
 18 adversarial conversations asserted at the broker boundary by a spy: 0 unauthorized executions,
-including against the real Claude classifier. 235 tests, ruff and mypy strict clean.
+including against the real Claude classifier. 254 tests, ruff and mypy strict clean.
 
 **Why heading-based chunking?**
 Fixed-size chunks split the PDT rule across a boundary, so retrieval returned half a rule and the
