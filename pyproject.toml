@@ -19,7 +19,9 @@ dependencies = [
     "pydantic>=2.9",
     "httpx>=0.27",
     "python-dotenv>=1.0",
-    "mcp>=1.2",
+    # mcp 2.x renamed FastMCP -> MCPServer and moved the module; app/mcp_server.py
+    # targets the v1 API, so the major is bounded rather than left to float.
+    "mcp>=1.2,<2",
 ]
 
 [project.optional-dependencies]
@@ -31,7 +33,7 @@ dev = [
     "mypy>=1.13",
     "respx>=0.21",
 ]
-mcp = ["mcp>=1.1"]
+mcp = ["mcp>=1.1,<2"]
 #: `GraphAgent.draw()` only. Not needed to run the agent — it renders the ASCII graph diagram
 #: for the DSN slide. `GraphAgent.edges()` gives the same wiring with no extra dependency.
 viz = ["grandalf>=0.8"]

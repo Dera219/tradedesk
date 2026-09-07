@@ -1,5 +1,7 @@
 # TradeDesk
 
+[![CI](https://github.com/Dera219/tradedesk/actions/workflows/ci.yml/badge.svg)](https://github.com/Dera219/tradedesk/actions/workflows/ci.yml)
+
 A conversational paper-trading assistant. Users chat with it to learn trading concepts, check
 quotes and their portfolio, and place **simulated** trades against Alpaca's paper-trading API.
 

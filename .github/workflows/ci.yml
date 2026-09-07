@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ruff · mypy strict · pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # ANTHROPIC_API_KEY is intentionally absent. The agent's tests run against
+    # fakes and a spy broker, so a green run here is evidence the safety
+    # assertions hold without reaching a live model.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # matches [tool.mypy] python_version
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Type-check (strict)
+        run: mypy app
+
+      - name: Test
+        run: pytest -q
